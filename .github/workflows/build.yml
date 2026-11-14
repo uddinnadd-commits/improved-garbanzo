@@ -1,0 +1,60 @@
+name: Build AI Buddy mod
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Finds settings.gradle wherever it is. If the repo only contains the
+      # uploaded .zip (instead of the extracted files), it extracts the zip first.
+      - name: Locate project
+        id: locate
+        shell: bash
+        run: |
+          set -e
+          S="$(find . -name settings.gradle -not -path './.git/*' | head -n 1)"
+          if [ -z "$S" ]; then
+            shopt -s nullglob
+            for z in ./*.zip; do
+              echo "Extracting $z"
+              unzip -q -o "$z" -d _unzipped
+            done
+            S="$(find ./_unzipped -name settings.gradle 2>/dev/null | head -n 1)"
+          fi
+          if [ -z "$S" ]; then
+            echo "::error::No settings.gradle found. Upload the EXTRACTED contents of the zip (or the zip itself) to the repo."
+            ls -la
+            exit 1
+          fi
+          DIR="$(dirname "$S")"
+          echo "Project directory: $DIR"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
+      - name: Build mod
+        working-directory: ${{ steps.locate.outputs.dir }}
+        run: gradle build --no-daemon --stacktrace
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-buddy-mod-jar
+          path: ${{ steps.locate.outputs.dir }}/build/libs/*.jar
+          if-no-files-found: error
